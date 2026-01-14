@@ -8,7 +8,7 @@ EPSILON = 1e-6
 
 # --- SESSION STATE ---
 if 'setup_stage' not in st.session_state:
-    st.session_state.setup_stage = "naming"  # naming -> configuring -> locked
+    st.session_state.setup_stage = "naming"
 if 'states' not in st.session_state:
     st.session_state.states = ["State 1", "State 2", "State 3"]
 if 'observations' not in st.session_state:
@@ -41,19 +41,17 @@ def check_normalization(df, name):
 # --- STAGE 1: NAMING ---
 if st.session_state.setup_stage == "naming":
     st.title("🏷️ 1. Name Your Variables")
-    st.write("Define the hidden states and the observations you will receive.")
-    
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Hidden States")
-        s1 = st.text_input("State 1 Label", "State 1")
-        s2 = st.text_input("State 2 Label", "State 2")
-        s3 = st.text_input("State 3 Label", "State 3")
+        s1 = st.text_input("State 1 Label", "State A")
+        s2 = st.text_input("State 2 Label", "State B")
+        s3 = st.text_input("State 3 Label", "State C")
     with c2:
         st.subheader("Observations")
-        o1 = st.text_input("Observation 1 Label", "Low")
-        o2 = st.text_input("Observation 2 Label", "Medium")
-        o3 = st.text_input("Observation 3 Label", "High")
+        o1 = st.text_input("Observation 1 Label", "Obs 1")
+        o2 = st.text_input("Observation 2 Label", "Obs 2")
+        o3 = st.text_input("Observation 3 Label", "Obs 3")
     
     if st.button("Proceed to Theory Configuration"):
         st.session_state.states = [s1, s2, s3]
@@ -64,8 +62,6 @@ if st.session_state.setup_stage == "naming":
 # --- STAGE 2: CONFIGURATION ---
 elif st.session_state.setup_stage == "configuring":
     st.title("⚙️ 2. Configure Theory")
-    st.write(f"Define your model for: **{', '.join(st.session_state.states)}**")
-    
     col_a, col_b = st.columns(2)
     with col_a:
         st.write("### Initial Prior")
@@ -80,6 +76,7 @@ elif st.session_state.setup_stage == "configuring":
         errors = check_normalization(init_p_df, "Prior") + check_normalization(init_b_df, "Emissions")
         if not errors:
             st.session_state.current_prior = protect_and_normalize(init_p_df.to_numpy().flatten())
+            # Ensure we capture the matrix rows accurately
             st.session_state.B_matrix = np.array([protect_and_normalize(row) for row in init_b_df.to_numpy()])
             st.session_state.trend_data = [{"Step": 0, "Obs": "Initial", **dict(zip(st.session_state.states, st.session_state.current_prior))}]
             st.session_state.setup_stage = "locked"
@@ -90,25 +87,28 @@ elif st.session_state.setup_stage == "configuring":
 # --- STAGE 3: EXECUTION ---
 else:
     with st.sidebar:
-        st.success("Session Active")
+        st.success("Model Locked")
         if st.button("🔄 Reset Everything"):
             st.session_state.setup_stage = "naming"
             st.session_state.history = []
             st.session_state.trend_data = []
             st.rerun()
-        st.write("### Fixed Theory")
+        st.write("### Current Emissions Matrix")
+        # Display as a dataframe for readability
         st.table(pd.DataFrame(st.session_state.B_matrix, columns=st.session_state.observations, index=st.session_state.states))
 
-    st.title(f"🔄 Analysis: {st.session_state.states[0]} vs {st.session_state.states[1]} vs {st.session_state.states[2]}")
+    st.title("🔄 Bayes Box Analysis")
     
     selected_obs = st.selectbox("Record New Evidence:", st.session_state.observations)
     obs_idx = st.session_state.observations.index(selected_obs)
 
     if st.button("Calculate Bayes Update"):
-        likelihoods = protect_and_normalize(st.session_state.B_matrix[:, obs_idx])
+        # Correctly pull the likelihood column for the selected observation
+        likelihoods = st.session_state.B_matrix[:, obs_idx]
+        
         unnorm = st.session_state.current_prior * likelihoods
         total_ev = np.sum(unnorm)
-        posterior = protect_and_normalize(unnorm)
+        posterior = unnorm / total_ev if total_ev > 0 else unnorm
         
         step_num = len(st.session_state.history) + 1
         step_box = pd.DataFrame({
@@ -125,7 +125,7 @@ else:
     if st.session_state.history:
         latest = st.session_state.history[0]
         st.divider()
-        st.subheader(f"Step {latest['step']}: Observed '{latest['obs']}'")
+        st.subheader(f"Latest Calculation: Observed '{latest['obs']}'")
         st.table(latest['box'].style.format("{:.4f}"))
         
         
@@ -133,3 +133,8 @@ else:
         st.write("### Probability Trend")
         trend_df = pd.DataFrame(st.session_state.trend_data).set_index("Step")
         st.line_chart(trend_df[st.session_state.states])
+
+        with st.expander("Full Iteration History"):
+            for record in st.session_state.history:
+                st.write(f"### Step {record['step']}: {record['obs']}")
+                st.dataframe(record['box'].style.format("{:.4f}"))
