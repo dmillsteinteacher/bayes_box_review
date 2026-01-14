@@ -9,95 +9,99 @@ OBSERVATIONS = ["Low", "Medium", "High"]
 st.set_page_config(page_title="Iterative Bayes Box", layout="wide")
 
 # --- SESSION STATE ---
+if 'locked' not in st.session_state:
+    st.session_state.locked = False
 if 'current_prior' not in st.session_state:
     st.session_state.current_prior = np.array([0.333, 0.333, 0.334])
 if 'history' not in st.session_state:
     st.session_state.history = []
+if 'B_matrix' not in st.session_state:
+    st.session_state.B_matrix = np.eye(3)
 
-# --- SIDEBAR: THEORY & RESET ---
-with st.sidebar:
-    st.header("Theory Configuration")
-    if st.button("Reset to Uniform Prior"):
-        st.session_state.current_belief = np.array([0.333, 0.333, 0.334])
-        st.session_state.history = []
-        st.rerun()
-    
-    st.write("### Emission Matrix (B)")
-    # Default theory: Distinct but noisy signals
-    default_b = pd.DataFrame(
-        [[0.8, 0.1, 0.1], 
-         [0.1, 0.8, 0.1], 
-         [0.1, 0.1, 0.8]], 
-        columns=OBSERVATIONS, 
-        index=STATES
-    )
-    b_df = st.data_editor(default_b, key="theory_b")
-    B_matrix = b_df.to_numpy()
+# --- UTILITIES ---
+def validate_rows(df):
+    return np.allclose(df.sum(axis=1), 1.0, atol=1e-3)
 
-# --- MAIN INTERFACE ---
+# --- MAIN UI ---
 st.title("🔄 Iterative Bayes Box Analysis")
 
-# Step 1: Input Evidence
-st.header("1. Current Evidence")
-selected_obs = st.selectbox("Select the new observation:", OBSERVATIONS)
-obs_idx = OBSERVATIONS.index(selected_obs)
-
-if st.button("Calculate Bayes Update", type="primary"):
-    # Perform the Bayes Box Math
-    likelihoods = B_matrix[:, obs_idx]
-    unnormalized = st.session_state.current_prior * likelihoods
-    total_evidence = np.sum(unnormalized)
+# --- STEP 1: MODEL CONFIGURATION (UNLOCKED ONLY) ---
+if not st.session_state.locked:
+    st.header("1. Configure Your Model")
+    st.write("Set your initial belief and your emissions theory, then lock them to begin.")
     
-    if total_evidence > 0:
-        posterior = unnormalized / total_evidence
-        
-        # Save the specific box for this step before updating the prior
-        step_box = pd.DataFrame({
-            "Prior P(H)": st.session_state.current_prior,
-            "Likelihood P(D|H)": likelihoods,
-            "Unnormalized P(H)P(D|H)": unnormalized,
-            "Posterior P(H|D)": posterior
-        }, index=STATES)
-        
-        # Record history
-        st.session_state.history.insert(0, {
-            "obs": selected_obs,
-            "box": step_box,
-            "total_ev": total_evidence
-        })
-        
-        # Update the prior for the next step
-        st.session_state.current_prior = posterior
-    else:
-        st.error("The observation is impossible given your current theory (Total Evidence = 0).")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.write("### Initial Prior Vector")
+        init_p_df = st.data_editor(pd.DataFrame([[0.333, 0.333, 0.334]], columns=STATES), key="init_p_editor")
+    with col_b:
+        st.write("### Emissions Theory (B)")
+        init_b_df = st.data_editor(pd.DataFrame(
+            [[0.8, 0.1, 0.1], [0.1, 0.8, 0.1], [0.1, 0.1, 0.8]], 
+            columns=OBSERVATIONS, index=STATES), key="init_b_editor")
 
-# Step 2: Display the Calculation and History
-st.divider()
-
-if not st.session_state.history:
-    st.info("Select an observation and click 'Calculate' to begin the iteration.")
-    st.write("### Starting Prior")
-    st.table(pd.DataFrame([st.session_state.current_prior], columns=STATES, index=["P(H)"]))
+    if st.button("✅ Validate and Lock Model", type="primary"):
+        if validate_rows(init_p_df) and validate_rows(init_b_df):
+            st.session_state.current_prior = init_p_df.to_numpy().flatten()
+            st.session_state.B_matrix = init_b_df.to_numpy()
+            st.session_state.locked = True
+            st.rerun()
+        else:
+            st.error("Matrix rows must sum to 1.0. Please adjust your values.")
 else:
-    # Show the most recent calculation as the primary focus
-    latest = st.session_state.history[0]
-    
-    st.header(f"2. Calculation for Evidence: '{latest['obs']}'")
-    st.write(f"**Total Probability of Evidence P(D):** {latest['total_ev']:.4f}")
-    
-    # Display the actual Bayes Box
-    st.table(latest['box'].style.format("{:.4f}"))
+    # --- STEP 2: ITERATIVE UPDATES (LOCKED ONLY) ---
+    with st.sidebar:
+        st.success("Model Locked")
+        if st.button("🔓 Unlock & Reset"):
+            st.session_state.locked = False
+            st.session_state.history = []
+            st.session_state.current_prior = np.array([0.333, 0.333, 0.334])
+            st.rerun()
+        
+        st.write("### Active Emissions Theory")
+        st.table(pd.DataFrame(st.session_state.B_matrix, columns=OBSERVATIONS, index=STATES))
 
-    
+    st.header("2. Process Evidence")
+    selected_obs = st.selectbox("Select the new observation:", OBSERVATIONS)
+    obs_idx = OBSERVATIONS.index(selected_obs)
 
-    # Show the shift visually
-    st.subheader("Visual Shift")
-    plot_df = latest['box'][["Prior P(H)", "Posterior P(H|D)"]]
-    st.bar_chart(plot_df)
+    if st.button("Calculate Bayes Update"):
+        likelihoods = st.session_state.B_matrix[:, obs_idx]
+        unnormalized = st.session_state.current_prior * likelihoods
+        total_evidence = np.sum(unnormalized)
+        
+        if total_evidence > 0:
+            posterior = unnormalized / total_evidence
+            
+            # The Bayes Box
+            step_box = pd.DataFrame({
+                "Prior P(H)": st.session_state.current_prior,
+                "Likelihood P(D|H)": likelihoods,
+                "Unnormalized": unnormalized,
+                "Posterior P(H|D)": posterior
+            }, index=STATES)
+            
+            st.session_state.history.insert(0, {
+                "obs": selected_obs,
+                "box": step_box,
+                "total_ev": total_evidence
+            })
+            st.session_state.current_prior = posterior
+        else:
+            st.error("Impossible evidence under current theory.")
 
-    # Historical Log
-    if len(st.session_state.history) > 1:
-        with st.expander("View Previous Iterations"):
-            for i, record in enumerate(st.session_state.history[1:]):
-                st.write(f"**Step {len(st.session_state.history)-1-i}: Observation '{record['obs']}'**")
-                st.table(record['box'].style.format("{:.3f}"))
+    # --- DISPLAY RESULTS ---
+    if st.session_state.history:
+        latest = st.session_state.history[0]
+        st.divider()
+        st.write(f"### Bayes Box for Evidence: '{latest['obs']}'")
+        st.table(latest['box'].style.format("{:.4f}"))
+        
+        
+        
+        st.bar_chart(latest['box'][["Prior P(H)", "Posterior P(H|D)"]])
+
+        with st.expander("Full Iteration History"):
+            for i, record in enumerate(st.session_state.history):
+                st.write(f"**Iteration {len(st.session_state.history)-i}: {record['obs']}**")
+                st.dataframe(record['box'])
