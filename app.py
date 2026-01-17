@@ -2,8 +2,6 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 
-st.write("Sat Jan 17, 15:58")
-
 # --- INITIAL SETUP ---
 st.set_page_config(page_title="HMM Strategy Lab", layout="wide")
 EPSILON = 1e-6
