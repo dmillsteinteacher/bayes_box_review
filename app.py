@@ -2,6 +2,8 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 
+st.write("DEBUG VERSION: 2.0 - Certainty Added")
+
 # --- INITIAL SETUP ---
 st.set_page_config(page_title="HMM Strategy Lab", layout="wide")
 EPSILON = 1e-6
