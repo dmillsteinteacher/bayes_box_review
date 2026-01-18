@@ -30,48 +30,38 @@ if 'trend_data' not in st.session_state:
 # --- UTILITIES ---
 def protect_and_normalize(matrix_or_arr):
     arr = np.array(matrix_or_arr)
-    was_zero = np.any(arr <= 0)
     arr = np.maximum(arr, MIN_PROB)
     if arr.ndim == 1:
-        return (arr / arr.sum()), was_zero
+        return (arr / arr.sum())
     else:
         row_sums = arr.sum(axis=1)
-        return (arr / row_sums[:, np.newaxis]), was_zero
+        return (arr / row_sums[:, np.newaxis])
 
 def calculate_certainty(probs):
     n = len(probs)
     if n <= 1: return 1.0
     h = -np.sum(probs * np.log2(probs + EPSILON))
     h_max = np.log2(n)
-    certainty = 1.0 - (h / h_max)
-    return np.clip(certainty, 0.0, 1.0)
-
-def check_normalization(df, name):
-    errors = []
-    matrix = df.to_numpy()
-    row_sums = matrix.sum(axis=1)
-    for i, s in enumerate(row_sums):
-        if not np.isclose(s, 1.0, atol=1e-2):
-            label = df.index[i]
-            errors.append(f"**{name}** ({label}) must sum to 1.0.")
-    return errors
+    return np.clip(1.0 - (h / h_max), 0.0, 1.0)
 
 # --- STAGE 1: NAMING ---
 if st.session_state.setup_stage == "naming":
     st.title("🏷️ 1. Set the Scene")
+    st.write("Define the 'Hidden Truths' you are investigating and the 'Clues' you might see.")
+    
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("🕵️ The Suspects")
+        st.subheader("🕵️ The Suspects (Hidden States)")
         s1 = st.text_input("State 1", st.session_state.states[0])
         s2 = st.text_input("State 2", st.session_state.states[1])
         s3 = st.text_input("State 3", st.session_state.states[2])
     with c2:
-        st.subheader("🔎 The Clues")
+        st.subheader("🔎 The Clues (Observations)")
         o1 = st.text_input("Clue 1", st.session_state.observations[0])
         o2 = st.text_input("Clue 2", st.session_state.observations[1])
         o3 = st.text_input("Clue 3", st.session_state.observations[2])
     
-    if st.button("Configure Theory ➡️"):
+    if st.button("Configure Theory & Movement ➡️"):
         st.session_state.states = [s1, s2, s3]
         st.session_state.observations = [o1, o2, o3]
         st.session_state.setup_stage = "configuring"
@@ -79,59 +69,73 @@ if st.session_state.setup_stage == "naming":
 
 # --- STAGE 2: CONFIGURATION ---
 elif st.session_state.setup_stage == "configuring":
-    st.title("⚙️ 2. Configure Your World")
+    st.title("⚙️ 2. Configure Your Theory")
     
-    st.subheader("🔄 Movement Rules (Transition Matrix)")
-    stability = st.select_slider("System Stability", options=["Chaotic", "Fluid", "Stable", "Inert"], value="Stable")
-    d_m = {"Chaotic": 0.33, "Fluid": 0.6, "Stable": 0.85, "Inert": 0.98}
-    d = d_m[stability]
-    off = (1.0 - d) / 2
-    default_a = [[d, off, off], [off, d, off], [off, off, d]]
-    init_a_df = st.data_editor(pd.DataFrame(default_a, columns=st.session_state.states, index=st.session_state.states))
+    st.subheader("🏠 Initial Prior")
+    st.write("What is your 'Gut Feeling' before seeing any new evidence? (Must sum to 1.0)")
+    init_p_df = st.data_editor(pd.DataFrame(
+        [st.session_state.current_prior], 
+        columns=st.session_state.states, 
+        index=["Prior Probability"]
+    ))
+
+    st.divider()
+    
+    st.subheader("📖 Clue Dictionary (Likelihoods)")
+    st.write("If the State was actually TRUE, how likely is it that you would see each Clue?")
+    init_b_df = st.data_editor(pd.DataFrame(
+        [[0.7, 0.2, 0.1], [0.1, 0.8, 0.1], [0.2, 0.1, 0.7]], 
+        columns=st.session_state.observations, 
+        index=st.session_state.states
+    ))
 
     st.divider()
 
-    col_prior, col_theory = st.columns([1, 2])
-    with col_prior:
-        st.subheader("🏠 Initial Prior")
-        init_p_df = st.data_editor(pd.DataFrame([[0.33, 0.33, 0.34]], columns=st.session_state.states, index=["Initial Prob"]))
-        
-    with col_theory:
-        st.subheader("📖 Clue Dictionary (Emissions)")
-        init_b_df = st.data_editor(pd.DataFrame([[0.7, 0.2, 0.1], [0.1, 0.8, 0.1], [0.2, 0.1, 0.7]], columns=st.session_state.observations, index=st.session_state.states))
+    st.subheader("🔄 Movement Rules (System Drift)")
+    st.write("How likely are suspects to change states between observations?")
+    # Defaulting to "Inert" keeps the app acting as a standard Bayes Box.
+    stability = st.select_slider(
+        "System Stability", 
+        options=["Chaotic (High Change)", "Fluid", "Stable", "Inert (No Change)"], 
+        value="Inert (No Change)"
+    )
+    d_m = {"Chaotic (High Change)": 0.4, "Fluid": 0.7, "Stable": 0.9, "Inert (No Change)": 1.0}
+    d = d_m[stability]
+    off = (1.0 - d) / 2
+    default_a = [[d, off, off], [off, d, off], [off, off, d]]
+    init_a_df = st.data_editor(pd.DataFrame(
+        default_a, 
+        columns=st.session_state.states, 
+        index=st.session_state.states
+    ))
 
-    if st.button("✅ Launch Bayes Box Forecaster"):
-        errs = check_normalization(init_a_df, "Transitions") + check_normalization(init_p_df, "Prior") + check_normalization(init_b_df, "Theory")
-        if not errs:
-            st.session_state.A_matrix, _ = protect_and_normalize(init_a_df.to_numpy())
-            st.session_state.B_matrix, _ = protect_and_normalize(init_b_df.to_numpy())
-            st.session_state.current_prior, _ = protect_and_normalize(init_p_df.to_numpy().flatten())
-            st.session_state.initial_vector = st.session_state.current_prior.copy()
-            
-            start_pt = {"Action Number": 0, "Type": "Initial"}
-            for i, name in enumerate(st.session_state.states): start_pt[name] = st.session_state.current_prior[i]
-            st.session_state.trend_data = [start_pt]
-            
-            st.session_state.setup_stage = "locked"
-            st.rerun()
-        else:
-            for e in errs: st.error(e)
+    if st.button("✅ Start Investigation"):
+        st.session_state.A_matrix = protect_and_normalize(init_a_df.to_numpy())
+        st.session_state.B_matrix = protect_and_normalize(init_b_df.to_numpy())
+        st.session_state.current_prior = protect_and_normalize(init_p_df.to_numpy().flatten())
+        st.session_state.initial_vector = st.session_state.current_prior.copy()
+        
+        start_pt = {"Action Number": 0, "Type": "Initial"}
+        for i, name in enumerate(st.session_state.states): 
+            start_pt[name] = st.session_state.current_prior[i]
+        st.session_state.trend_data = [start_pt]
+        st.session_state.setup_stage = "locked"
+        st.rerun()
 
 # --- STAGE 3: DASHBOARD ---
 else:
     with st.sidebar:
-        st.header("⚙️ World Model")
-        
-        st.write("**1. Initial Starting State**")
+        st.header("🕵️ Case Parameters")
+        st.write("**Original Starting State**")
         st.dataframe(pd.DataFrame({"Prob": st.session_state.initial_vector}, index=st.session_state.states).style.format("{:.3f}"))
         
-        st.write("**2. Movement Rules**")
-        st.dataframe(pd.DataFrame(st.session_state.A_matrix, columns=st.session_state.states, index=st.session_state.states).style.format("{:.3f}"))
+        st.write("**Movement Rules (Transitions)**")
+        st.dataframe(pd.DataFrame(st.session_state.A_matrix, columns=st.session_state.states, index=st.session_state.states).style.format("{:.2f}"))
         
-        st.write("**3. Clue Dictionary**")
-        st.dataframe(pd.DataFrame(st.session_state.B_matrix, columns=st.session_state.observations, index=st.session_state.states).style.format("{:.3f}"))
+        st.write("**Theory (Likelihoods)**")
+        st.dataframe(pd.DataFrame(st.session_state.B_matrix, columns=st.session_state.observations, index=st.session_state.states).style.format("{:.2f}"))
         
-        if st.button("🔄 Reset Investigation"):
+        if st.button("🔄 New Scenario"):
             st.session_state.setup_stage = "naming"
             st.session_state.history, st.session_state.trend_data = [], []
             st.rerun()
@@ -139,49 +143,61 @@ else:
     st.title("🔮 Bayes Box Based Forecaster")
     
     col_ctrl, col_viz = st.columns([1, 2])
-    
     with col_ctrl:
-        st.subheader("🎮 Investigation Actions")
+        st.subheader("🎮 Record Evidence")
         with st.container(border=True):
-            st.write("#### ⏳ Pass Time (Markov)")
-            st.caption("Apply movement rules. Uncertainty usually increases.")
-            if st.button("Advance 1 Time Step", use_container_width=True):
-                new_state = st.session_state.current_prior @ st.session_state.A_matrix
-                sn = len(st.session_state.history) + 1
-                st.session_state.history.insert(0, {"step": sn, "action": "Time Step", "box": pd.DataFrame({"Before": st.session_state.current_prior, "After": new_state}, index=st.session_state.states), "obs": "None"})
-                st.session_state.current_prior = new_state
-                tr = {"Action Number": sn, "Type": "Time"}
-                for i, name in enumerate(st.session_state.states): tr[name] = new_state[i]
-                st.session_state.trend_data.append(tr)
-                st.rerun()
-
-        with st.container(border=True):
-            st.write("#### 🔎 Observe Clue (Bayes)")
-            st.caption("Apply a clue update. Uncertainty usually decreases.")
-            sel_obs = st.selectbox("Recorded Clue:", st.session_state.observations)
-            if st.button("Update with Evidence", use_container_width=True):
+            st.write("#### 🔎 Observe Clue (Update)")
+            st.caption("Perform a Bayes Update based on new data.")
+            sel_obs = st.selectbox("What clue did you find?", st.session_state.observations)
+            if st.button("Apply Bayes Update", use_container_width=True):
                 idx = st.session_state.observations.index(sel_obs)
                 lk = st.session_state.B_matrix[:, idx]
                 un = st.session_state.current_prior * lk
                 post = (un / np.sum(un)) if np.sum(un) > 0 else un
                 sn = len(st.session_state.history) + 1
-                st.session_state.history.insert(0, {"step": sn, "action": "Evidence Update", "box": pd.DataFrame({"Prior": st.session_state.current_prior, "Likelihood": lk, "Posterior": post}, index=st.session_state.states), "obs": sel_obs})
+                
+                # History log box
+                res_box = pd.DataFrame({
+                    "Prior": st.session_state.current_prior, 
+                    "Likelihood": lk, 
+                    "Posterior": post
+                }, index=st.session_state.states)
+                
+                st.session_state.history.insert(0, {"step": sn, "action": "Evidence", "box": res_box, "obs": sel_obs})
                 st.session_state.current_prior = post
+                
                 tr = {"Action Number": sn, "Type": "Clue"}
                 for i, name in enumerate(st.session_state.states): tr[name] = post[i]
                 st.session_state.trend_data.append(tr)
                 st.rerun()
 
+        with st.container(border=True):
+            st.write("#### ⏳ Pass Time (Drift)")
+            st.caption("Apply movement rules. Initial state begins to 'fall away'.")
+            if st.button("Advance 1 Time Step", use_container_width=True):
+                new_state = st.session_state.current_prior @ st.session_state.A_matrix
+                sn = len(st.session_state.history) + 1
+                
+                res_box = pd.DataFrame({
+                    "Before": st.session_state.current_prior, 
+                    "After": new_state
+                }, index=st.session_state.states)
+                
+                st.session_state.history.insert(0, {"step": sn, "action": "Time", "box": res_box, "obs": "None"})
+                st.session_state.current_prior = new_state
+                
+                tr = {"Action Number": sn, "Type": "Time"}
+                for i, name in enumerate(st.session_state.states): tr[name] = new_state[i]
+                st.session_state.trend_data.append(tr)
+                st.rerun()
+
     with col_viz:
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            st.metric("Forecast Certainty", f"{calculate_certainty(st.session_state.current_prior):.1%}")
-        with c2:
-            st.subheader("📊 Current Belief State")
+        st.subheader("📊 Current Forecast")
         st.bar_chart(pd.DataFrame({"Probability": st.session_state.current_prior}, index=st.session_state.states), height=250)
+        st.metric("Certainty Gauge", f"{calculate_certainty(st.session_state.current_prior):.1%}")
         
     st.divider()
-    t1, t2 = st.tabs(["📈 Probability Trend", "📂 Audit Trail"])
+    t1, t2 = st.tabs(["📈 Probability Trend", "📂 Forecaster's Log"])
     with t1:
         st.write("### Probability Evolution (Action-by-Action)")
         if st.session_state.trend_data:
