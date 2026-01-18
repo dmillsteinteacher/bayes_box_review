@@ -44,6 +44,11 @@ def calculate_certainty(probs):
     h_max = np.log2(n)
     return np.clip(1.0 - (h / h_max), 0.0, 1.0)
 
+def highlight_max(s):
+    '''Highlight the maximum value in a series.'''
+    is_max = s == s.max()
+    return ['background-color: #d4edda' if v else '' for v in is_max]
+
 # --- STAGE 1: NAMING ---
 if st.session_state.setup_stage == "naming":
     st.title("🏷️ 1. Set the Scene")
@@ -122,10 +127,13 @@ else:
         st.header("🕵️ Case Parameters")
         st.write("**Starting Prior**")
         st.dataframe(pd.DataFrame({"Prob": st.session_state.initial_vector}, index=st.session_state.states).style.format("{:.3f}"))
+        
         st.write("**Movement Rules**")
         st.dataframe(pd.DataFrame(st.session_state.A_matrix, columns=st.session_state.states, index=st.session_state.states).style.format("{:.2f}"))
+        
         st.write("**Likelihood Dictionary**")
         st.dataframe(pd.DataFrame(st.session_state.B_matrix, columns=st.session_state.observations, index=st.session_state.states).style.format("{:.2f}"))
+        
         if st.button("🔄 New Scenario"):
             st.session_state.setup_stage = "naming"
             st.session_state.history, st.session_state.trend_data = [], []
@@ -192,9 +200,10 @@ else:
     with t2:
         for r in st.session_state.history:
             st.write(f"**Action {r['step']}: {r['action']}** {f'({r['obs']})' if r['obs'] != 'None' else ''}")
-            st.table(r['box'].style.format("{:.4f}"))
+            # Applied green highlighting to the maximum probability in each column
+            st.table(r['box'].style.format("{:.4f}").apply(highlight_max, axis=0))
 
 # --- END OF FILE BUFFER ---
-# These lines ensure that a partial copy-paste does not terminate the functional code above.
-# End of Investigation Log.
-# File closing procedures complete.
+# Logic Highlighting Restored.
+# Syntax Error protection active.
+# End of app.py.
