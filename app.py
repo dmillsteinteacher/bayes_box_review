@@ -44,10 +44,17 @@ def calculate_certainty(probs):
     h_max = np.log2(n)
     return np.clip(1.0 - (h / h_max), 0.0, 1.0)
 
-def highlight_max(s):
-    '''Highlight the maximum value in a series.'''
-    is_max = s == s.max()
-    return ['background-color: #d4edda' if v else '' for v in is_max]
+def highlight_target_columns(df):
+    """Surgically highlights only the max of the 'before' and 'after' probability columns."""
+    attr = 'background-color: #d4edda'
+    df_styler = pd.DataFrame('', index=df.index, columns=df.columns)
+    # Target columns for Evidence Update and Time Drift phases
+    targets = ["Prior P(H)", "Posterior", "Before Drift", "After Drift"]
+    for col in targets:
+        if col in df.columns:
+            max_val = df[col].max()
+            df_styler[col] = df[col].apply(lambda v: attr if v == max_val else '')
+    return df_styler
 
 # --- STAGE 1: NAMING ---
 if st.session_state.setup_stage == "naming":
@@ -114,10 +121,13 @@ elif st.session_state.setup_stage == "configuring":
         st.session_state.current_prior = protect_and_normalize(init_p_df.to_numpy().flatten())
         st.session_state.initial_vector = st.session_state.current_prior.copy()
         
+        # Initialize trend data
+        st.session_state.trend_data = []
         start_pt = {"Action Number": 0, "Type": "Initial"}
         for i, name in enumerate(st.session_state.states): 
             start_pt[name] = st.session_state.current_prior[i]
-        st.session_state.trend_data = [start_pt]
+        st.session_state.trend_data.append(start_pt)
+        
         st.session_state.setup_stage = "locked"
         st.rerun()
 
@@ -200,10 +210,9 @@ else:
     with t2:
         for r in st.session_state.history:
             st.write(f"**Action {r['step']}: {r['action']}** {f'({r['obs']})' if r['obs'] != 'None' else ''}")
-            # Applied green highlighting to the maximum probability in each column
-            st.table(r['box'].style.format("{:.4f}").apply(highlight_max, axis=0))
+            st.table(r['box'].style.format("{:.4f}").apply(highlight_target_columns, axis=None))
 
-# --- END OF FILE BUFFER ---
-# Logic Highlighting Restored.
-# Syntax Error protection active.
-# End of app.py.
+# --- END OF FILE ---
+# Targeted Highlighting Enabled: Prior and Posterior only.
+# Movement Rules default to Identity Matrix.
+# Deployment Ready.
