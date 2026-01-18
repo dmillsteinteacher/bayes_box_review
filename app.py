@@ -122,13 +122,10 @@ else:
         st.header("🕵️ Case Parameters")
         st.write("**Starting Prior**")
         st.dataframe(pd.DataFrame({"Prob": st.session_state.initial_vector}, index=st.session_state.states).style.format("{:.3f}"))
-        
         st.write("**Movement Rules**")
         st.dataframe(pd.DataFrame(st.session_state.A_matrix, columns=st.session_state.states, index=st.session_state.states).style.format("{:.2f}"))
-        
         st.write("**Likelihood Dictionary**")
         st.dataframe(pd.DataFrame(st.session_state.B_matrix, columns=st.session_state.observations, index=st.session_state.states).style.format("{:.2f}"))
-        
         if st.button("🔄 New Scenario"):
             st.session_state.setup_stage = "naming"
             st.session_state.history, st.session_state.trend_data = [], []
@@ -140,7 +137,6 @@ else:
     with col_ctrl:
         st.subheader("🎮 Record Evidence")
         
-        # BAYES UPDATE
         with st.container(border=True):
             st.write("#### 🔎 Observe Clue")
             sel_obs = st.selectbox("Recorded Clue:", st.session_state.observations)
@@ -152,7 +148,6 @@ else:
                 post = (unnorm / total) if total > 0 else unnorm
                 sn = len(st.session_state.history) + 1
                 
-                # Full Bayes Box for the log
                 res_box = pd.DataFrame({
                     "Prior P(H)": st.session_state.current_prior, 
                     "Likelihood P(D|H)": lk, 
@@ -168,21 +163,17 @@ else:
                 st.session_state.trend_data.append(tr)
                 st.rerun()
 
-        # TIME STEP
         with st.container(border=True):
             st.write("#### ⏳ Pass Time")
             if st.button("Advance 1 Time Step", use_container_width=True):
                 new_state = st.session_state.current_prior @ st.session_state.A_matrix
                 sn = len(st.session_state.history) + 1
-                
                 res_box = pd.DataFrame({
                     "Before Drift": st.session_state.current_prior, 
                     "After Drift": new_state
                 }, index=st.session_state.states)
-                
                 st.session_state.history.insert(0, {"step": sn, "action": "Time", "box": res_box, "obs": "None"})
                 st.session_state.current_prior = new_state
-                
                 tr = {"Action Number": sn, "Type": "Time"}
                 for i, name in enumerate(st.session_state.states): tr[name] = new_state[i]
                 st.session_state.trend_data.append(tr)
@@ -201,4 +192,9 @@ else:
     with t2:
         for r in st.session_state.history:
             st.write(f"**Action {r['step']}: {r['action']}** {f'({r['obs']})' if r['obs'] != 'None' else ''}")
-            st.table(r['box'].style.format("{:.4f}
+            st.table(r['box'].style.format("{:.4f}"))
+
+# --- END OF FILE BUFFER ---
+# These lines ensure that a partial copy-paste does not terminate the functional code above.
+# End of Investigation Log.
+# File closing procedures complete.
